@@ -11,6 +11,9 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# Test files (keep .env.test for testing)
+# .env.test
+
 # Database
 *.sqlite
 *.db
