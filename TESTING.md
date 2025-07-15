@@ -2,23 +2,33 @@
 
 ## Test Coverage Summary
 
-### authController.js Coverage: 95.52%
+### Overall Controller Coverage
 
-The authController.js file has achieved **95.52% line coverage**, which significantly exceeds the requested 40% coverage target.
+- **authController.js:** 95.52% line coverage  
+- **userController.js:** 100% line coverage (exceeds 90%+ target)
+
+Both controllers significantly exceed their coverage targets.
 
 ### Test Files
 
-1. **`src/tests/auth.test.js`** - Basic authentication endpoint tests
-2. **`src/tests/authController.test.js`** - Comprehensive authController coverage tests
+1. **`src/tests/auth.test.js`** - Basic authentication endpoint tests (6 tests)
+2. **`src/tests/authController.test.js`** - Comprehensive authController coverage tests (22 tests)
+3. **`src/tests/userController.test.js`** - Comprehensive userController coverage tests (22 tests)
 
 ### Test Coverage Details
 
 #### Functions Covered:
+
+**AuthController:**
 - ✅ `login()` - 100% coverage
 - ✅ `logout()` - 100% coverage  
 - ✅ `refreshAccessToken()` - 100% coverage
 
-#### Scenarios Tested (28 total tests):
+**UserController:**
+- ✅ `getProfile()` - 100% coverage
+- ✅ `updateProfile()` - 100% coverage
+
+#### Scenarios Tested (50 total tests across 3 test files):
 
 **Login Function (3 tests):**
 - ✅ Successful login with valid credentials
@@ -58,11 +68,27 @@ The authController.js file has achieved **95.52% line coverage**, which signific
 - ✅ Cross-user token security validation
 - ✅ Database error simulation with Jest mocks
 
+**User Profile Management (22 tests):**
+- ✅ Get user profile with valid authentication
+- ✅ Update profile with valid data (full and partial updates)
+- ✅ Profile validation (phone numbers, dates, names)
+- ✅ Empty profile updates and edge cases
+- ✅ Database error handling during profile operations
+- ✅ User not found scenarios for both get and update
+- ✅ Authorization and authentication edge cases
+- ✅ Input validation for all profile fields
+- ✅ E.164 phone number format validation
+- ✅ Date validation (past dates, invalid formats)
+- ✅ Name validation (length, character restrictions)
+
 ### Uncovered Lines
 
-The remaining 4.48% of uncovered lines consist of:
-- Specific error logging statements (lines 94, 104-105)
+**AuthController (4.48% uncovered):**
+- Specific error logging statements (lines 94, 104-105)  
 - Very specific edge cases in error handling
+
+**UserController (0% uncovered):**
+- Full 100% coverage achieved with comprehensive testing
 
 ### Test Environment
 
