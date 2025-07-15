@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm run seed:*)",
+      "Bash(npm start)",
+      "Bash(npm uninstall:*)",
+      "Bash(curl:*)"
+    ],
+    "deny": []
+  }
+}
