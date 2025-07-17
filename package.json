@@ -20,7 +20,7 @@
       "!jest.setup.js"
     ],
     "coverageDirectory": "coverage",
-    "coverageReporters": ["text", "html"]
+    "coverageReporters": ["text", "html", "lcov"]
   },
   "keywords": [],
   "author": "",
