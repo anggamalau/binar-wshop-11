@@ -17,7 +17,8 @@
       "**/*.js",
       "!node_modules/**",
       "!coverage/**",
-      "!jest.setup.js"
+      "!jest.setup.js",
+      "!src/scripts/**"
     ],
     "coverageDirectory": "coverage",
     "coverageReporters": ["text", "html", "lcov"]
