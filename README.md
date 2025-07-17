@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/github/anggamalau/binar-wshop-11/graph/badge.svg?token=YX895CSEUM)](https://codecov.io/github/anggamalau/binar-wshop-11)
+
 # RESTful API with JWT Authentication
 
 A secure RESTful API built with Express.js and SQLite, featuring JWT-based authentication with refresh tokens, user profile management, and comprehensive security measures.
