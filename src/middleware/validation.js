@@ -66,6 +66,10 @@ const profileUpdateValidation = [
 ];
 
 const passwordValidation = (password) => {
+  if (!password || typeof password !== 'string') {
+    return false;
+  }
+  
   const minLength = 8;
   const hasUpperCase = /[A-Z]/.test(password);
   const hasLowerCase = /[a-z]/.test(password);

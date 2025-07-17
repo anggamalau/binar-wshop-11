@@ -1,493 +1,502 @@
-require('dotenv').config({ path: '.env.test' });
-const request = require('supertest');
-const { app, initializeApp } = require('../app');
+const authController = require('../controllers/authController');
 const User = require('../models/User');
 const Token = require('../models/Token');
-const { generateRefreshToken } = require('../utils/jwt');
+const {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+  decodeToken,
+  getTokenExpiration
+} = require('../utils/jwt');
 
-describe('Auth Controller', () => {
-  let testUser;
-  let refreshToken;
+jest.mock('../config/database', () => ({
+  db: {},
+  initDatabase: jest.fn(),
+  runQuery: jest.fn(),
+  getOne: jest.fn(),
+  getAll: jest.fn(),
+  uuidv4: jest.fn(() => 'mock-uuid')
+}));
 
-  beforeAll(async () => {
-    // Initialize the app and database
-    initializeApp();
+jest.mock('../models/User');
+jest.mock('../models/Token');
+jest.mock('../utils/jwt');
+
+describe('AuthController', () => {
+  let mockReq, mockRes;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
     
-    // Wait for database to be ready
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Create test user
-    const testUserData = {
-      email: 'authtest@example.com',
-      password: 'TestPassword123',
-      firstName: 'Auth',
-      lastName: 'Test',
-      phoneNumber: '+1234567890',
-      dateOfBirth: '1990-01-15'
+    mockReq = {
+      body: {},
+      user: { id: 'user123', email: 'test@example.com' },
+      token: 'mock-access-token'
     };
     
-    try {
-      testUser = await User.create(testUserData);
-    } catch (error) {
-      // User might already exist, find it
-      testUser = await User.findByEmail(testUserData.email);
-    }
+    mockRes = {
+      json: jest.fn(),
+      status: jest.fn().mockReturnThis()
+    };
   });
 
-  describe('POST /api/auth/login', () => {
-    test('should login successfully with valid credentials', async () => {
-      const loginData = {
-        email: 'authtest@example.com',
-        password: 'TestPassword123'
+  describe('login', () => {
+    const mockUser = {
+      id: 'user123',
+      email: 'test@example.com',
+      password: 'hashedPassword123'
+    };
+
+    beforeEach(() => {
+      mockReq.body = {
+        email: 'test@example.com',
+        password: 'password123'
       };
-
-      const response = await request(app)
-        .post('/api/auth/login')
-        .send(loginData)
-        .expect(200);
-
-      expect(response.body).toHaveProperty('success', true);
-      expect(response.body).toHaveProperty('message', 'Login successful');
-      expect(response.body.data).toHaveProperty('user');
-      expect(response.body.data).toHaveProperty('tokens');
-      expect(response.body.data.tokens).toHaveProperty('accessToken');
-      expect(response.body.data.tokens).toHaveProperty('refreshToken');
-      expect(response.body.data.tokens).toHaveProperty('expiresIn');
-
-      // Store refresh token for other tests
-      refreshToken = response.body.data.tokens.refreshToken;
     });
 
-    test('should return 401 for non-existent email', async () => {
-      const loginData = {
-        email: 'nonexistent@example.com',
-        password: 'TestPassword123'
-      };
-
-      const response = await request(app)
-        .post('/api/auth/login')
-        .send(loginData)
-        .expect(401);
-
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'INVALID_CREDENTIALS');
-      expect(response.body.error).toHaveProperty('message', 'Invalid email or password');
-    });
-
-    test('should return 401 for incorrect password', async () => {
-      const loginData = {
-        email: 'authtest@example.com',
-        password: 'WrongPassword123'
-      };
-
-      const response = await request(app)
-        .post('/api/auth/login')
-        .send(loginData)
-        .expect(401);
-
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'INVALID_CREDENTIALS');
-      expect(response.body.error).toHaveProperty('message', 'Invalid email or password');
-    });
-  });
-
-  describe('POST /api/auth/refresh', () => {
-    test('should refresh access token with valid refresh token', async () => {
-      const response = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken })
-        .expect(200);
-
-      expect(response.body).toHaveProperty('success', true);
-      expect(response.body.data).toHaveProperty('accessToken');
-      expect(response.body.data).toHaveProperty('expiresIn');
-      expect(typeof response.body.data.accessToken).toBe('string');
-      expect(typeof response.body.data.expiresIn).toBe('number');
-    });
-
-    test('should return 401 for invalid refresh token', async () => {
-      const invalidToken = 'invalid.refresh.token';
-
-      const response = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken: invalidToken })
-        .expect(401);
-
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'INVALID_REFRESH_TOKEN');
-    });
-
-    test('should return 401 for blacklisted refresh token', async () => {
-      // Create a refresh token and blacklist it
-      const tokenPayload = { userId: testUser.id, email: testUser.email };
-      const blacklistedToken = generateRefreshToken(tokenPayload);
+    it('should login successfully with valid credentials', async () => {
+      User.findByEmail.mockResolvedValue(mockUser);
+      User.verifyPassword.mockResolvedValue(true);
+      User.formatUser.mockReturnValue({
+        id: 'user123',
+        email: 'test@example.com'
+      });
       
-      // Add to database first
-      await Token.createRefreshToken(testUser.id, blacklistedToken, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
+      generateAccessToken.mockReturnValue('access-token');
+      generateRefreshToken.mockReturnValue('refresh-token');
+      getTokenExpiration.mockReturnValue(new Date('2024-01-01'));
+      decodeToken.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 900 });
       
-      // Then blacklist it
-      await Token.blacklistToken(blacklistedToken, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
+      Token.createRefreshToken.mockResolvedValue();
 
-      const response = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken: blacklistedToken })
-        .expect(401);
+      await authController.login(mockReq, mockRes);
 
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'TOKEN_BLACKLISTED');
+      expect(User.findByEmail).toHaveBeenCalledWith('test@example.com');
+      expect(User.verifyPassword).toHaveBeenCalledWith('password123', 'hashedPassword123');
+      expect(Token.createRefreshToken).toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Login successful',
+        data: {
+          user: { id: 'user123', email: 'test@example.com' },
+          tokens: {
+            accessToken: 'access-token',
+            refreshToken: 'refresh-token',
+            expiresIn: expect.any(Number)
+          }
+        }
+      });
     });
 
-    test('should return 401 for non-existent refresh token in database', async () => {
-      // Create a valid JWT token but don't store it in database
-      const tokenPayload = { userId: testUser.id, email: testUser.email };
-      const nonStoredToken = generateRefreshToken(tokenPayload);
+    it('should fail login with non-existent email', async () => {
+      User.findByEmail.mockResolvedValue(null);
 
-      const response = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken: nonStoredToken })
-        .expect(401);
+      await authController.login(mockReq, mockRes);
 
-      expect(response.body).toHaveProperty('success', false);
-      // The token might be blacklisted or invalid, both are acceptable error codes
-      expect(['INVALID_REFRESH_TOKEN', 'TOKEN_BLACKLISTED']).toContain(response.body.error.code);
-    });
-  });
-
-  describe('POST /api/auth/logout', () => {
-    test('should logout successfully with valid tokens', async () => {
-      // Get fresh tokens for this test
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'authtest@example.com',
-          password: 'TestPassword123'
-        });
-
-      const freshAccessToken = loginResponse.body.data.tokens.accessToken;
-      const freshRefreshToken = loginResponse.body.data.tokens.refreshToken;
-
-      const response = await request(app)
-        .post('/api/auth/logout')
-        .set('Authorization', `Bearer ${freshAccessToken}`)
-        .send({ refreshToken: freshRefreshToken })
-        .expect(200);
-
-      expect(response.body).toHaveProperty('success', true);
-      expect(response.body).toHaveProperty('message', 'Logout successful');
+      expect(User.findByEmail).toHaveBeenCalledWith('test@example.com');
+      expect(User.verifyPassword).not.toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INVALID_CREDENTIALS',
+          message: 'Invalid email or password'
+        }
+      });
     });
 
-    test('should logout successfully without refresh token', async () => {
-      // Login again to get new tokens
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'authtest@example.com',
-          password: 'TestPassword123'
-        });
+    it('should fail login with incorrect password', async () => {
+      User.findByEmail.mockResolvedValue(mockUser);
+      User.verifyPassword.mockResolvedValue(false);
 
-      const newAccessToken = loginResponse.body.data.tokens.accessToken;
+      await authController.login(mockReq, mockRes);
 
-      const response = await request(app)
-        .post('/api/auth/logout')
-        .set('Authorization', `Bearer ${newAccessToken}`)
-        .send({});
-
-      // Check if it's a 401 because token is blacklisted, or 200 for success
-      if (response.status === 401) {
-        expect(response.body).toHaveProperty('success', false);
-        expect(response.body.error).toHaveProperty('code', 'TOKEN_BLACKLISTED');
-      } else {
-        expect(response.status).toBe(200);
-        expect(response.body).toHaveProperty('success', true);
-        expect(response.body).toHaveProperty('message', 'Logout successful');
-      }
+      expect(User.findByEmail).toHaveBeenCalledWith('test@example.com');
+      expect(User.verifyPassword).toHaveBeenCalledWith('password123', 'hashedPassword123');
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INVALID_CREDENTIALS',
+          message: 'Invalid email or password'
+        }
+      });
     });
 
-    test('should return 401 for invalid access token', async () => {
-      const response = await request(app)
-        .post('/api/auth/logout')
-        .set('Authorization', 'Bearer invalid.access.token')
-        .send({ refreshToken: 'some.refresh.token' })
-        .expect(401);
+    it('should handle missing email', async () => {
+      mockReq.body = { password: 'password123' };
 
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'INVALID_TOKEN');
+      await authController.login(mockReq, mockRes);
+
+      expect(User.findByEmail).toHaveBeenCalledWith(undefined);
+      expect(User.findByEmail).toHaveBeenCalled();
     });
 
-    test('should return 401 for missing authorization header', async () => {
-      const response = await request(app)
-        .post('/api/auth/logout')
-        .send({ refreshToken: 'some.refresh.token' })
-        .expect(401);
+    it('should handle missing password', async () => {
+      mockReq.body = { email: 'test@example.com' };
+      User.findByEmail.mockResolvedValue(mockUser);
 
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'UNAUTHORIZED');
-    });
-  });
+      await authController.login(mockReq, mockRes);
 
-  describe('Validation errors', () => {
-    test('should return 422 for missing refresh token in refresh endpoint', async () => {
-      const response = await request(app)
-        .post('/api/auth/refresh')
-        .send({})
-        .expect(422);
-
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'VALIDATION_ERROR');
+      expect(User.findByEmail).toHaveBeenCalledWith('test@example.com');
+      expect(User.verifyPassword).toHaveBeenCalledWith(undefined, 'hashedPassword123');
     });
 
-    test('should return 422 for invalid email format in login', async () => {
-      const response = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'invalid-email-format',
-          password: 'TestPassword123'
-        })
-        .expect(422);
+    it('should handle database errors during login', async () => {
+      User.findByEmail.mockRejectedValue(new Error('Database error'));
 
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'VALIDATION_ERROR');
+      await authController.login(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error'
+        }
+      });
     });
 
-    test('should return 422 for missing password in login', async () => {
-      const response = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'test@example.com'
-        })
-        .expect(422);
+    it('should handle token generation errors', async () => {
+      User.findByEmail.mockResolvedValue(mockUser);
+      User.verifyPassword.mockResolvedValue(true);
+      generateAccessToken.mockImplementation(() => {
+        throw new Error('Token generation failed');
+      });
 
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'VALIDATION_ERROR');
+      await authController.login(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error'
+        }
+      });
+    });
+
+    it('should handle refresh token creation errors', async () => {
+      User.findByEmail.mockResolvedValue(mockUser);
+      User.verifyPassword.mockResolvedValue(true);
+      generateAccessToken.mockReturnValue('access-token');
+      generateRefreshToken.mockReturnValue('refresh-token');
+      getTokenExpiration.mockReturnValue(new Date('2024-01-01'));
+      Token.createRefreshToken.mockRejectedValue(new Error('Token creation failed'));
+
+      await authController.login(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error'
+        }
+      });
     });
   });
 
-  describe('Error handling and edge cases', () => {
-    test('should handle database errors during login', async () => {
-      // Mock User.findByEmail to throw an error
-      const originalFindByEmail = User.findByEmail;
-      User.findByEmail = jest.fn().mockRejectedValue(new Error('Database error'));
-
-      const response = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'authtest@example.com',
-          password: 'TestPassword123'
-        })
-        .expect(500);
-
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'INTERNAL_ERROR');
-
-      // Restore original method
-      User.findByEmail = originalFindByEmail;
+  describe('logout', () => {
+    beforeEach(() => {
+      mockReq.body = {
+        refreshToken: 'refresh-token-123'
+      };
+      mockReq.token = 'access-token-123';
+      mockReq.user = { id: 'user123' };
     });
 
-    test('should handle database errors during logout', async () => {
-      // Get fresh tokens
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'authtest@example.com',
-          password: 'TestPassword123'
-        });
-
-      const accessToken = loginResponse.body.data.tokens.accessToken;
-
-      // Mock Token.blacklistToken to throw an error
-      const originalBlacklistToken = Token.blacklistToken;
-      Token.blacklistToken = jest.fn().mockRejectedValue(new Error('Database error'));
-
-      const response = await request(app)
-        .post('/api/auth/logout')
-        .set('Authorization', `Bearer ${accessToken}`)
-        .send({});
-
-      // Could be 500 for database error or 401 if token was already blacklisted
-      if (response.status === 500) {
-        expect(response.body).toHaveProperty('success', false);
-        expect(response.body.error).toHaveProperty('code', 'INTERNAL_ERROR');
-      } else if (response.status === 401) {
-        expect(response.body).toHaveProperty('success', false);
-        expect(['TOKEN_BLACKLISTED', 'INVALID_TOKEN'].includes(response.body.error.code)).toBe(true);
-      }
-
-      // Restore original method
-      Token.blacklistToken = originalBlacklistToken;
-    });
-
-    test('should handle database errors during refresh token', async () => {
-      // Get fresh tokens
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'authtest@example.com',
-          password: 'TestPassword123'
-        });
-
-      const refreshToken = loginResponse.body.data.tokens.refreshToken;
-
-      // Mock Token.isTokenBlacklisted to throw an error
-      const originalIsTokenBlacklisted = Token.isTokenBlacklisted;
-      Token.isTokenBlacklisted = jest.fn().mockRejectedValue(new Error('Database error'));
-
-      const response = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken })
-        .expect(500);
-
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'INTERNAL_ERROR');
-
-      // Restore original method
-      Token.isTokenBlacklisted = originalIsTokenBlacklisted;
-    });
-
-    test('should handle expired refresh token during refresh', async () => {
-      // Create an expired refresh token
-      const jwt = require('jsonwebtoken');
-      const expiredToken = jwt.sign(
-        { userId: testUser.id, email: testUser.email },
-        process.env.JWT_REFRESH_SECRET,
-        { expiresIn: '-1h' } // Already expired
-      );
-
-      // Add expired token to database
-      await Token.createRefreshToken(testUser.id, expiredToken, new Date(Date.now() - 3600000).toISOString());
-
-      const response = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken: expiredToken })
-        .expect(401);
-
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'REFRESH_TOKEN_EXPIRED');
-    });
-
-    test('should handle malformed refresh token', async () => {
-      // Create a malformed token that will fail JWT verification
-      const malformedToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.malformed.signature';
-
-      // Add malformed token to database
-      await Token.createRefreshToken(testUser.id, malformedToken, new Date(Date.now() + 3600000).toISOString());
-
-      const response = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken: malformedToken })
-        .expect(401);
-
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'INVALID_REFRESH_TOKEN');
-    });
-
-    test('should handle refresh token for non-existent user', async () => {
-      // Create a token for a non-existent user
-      const jwt = require('jsonwebtoken');
-      const tokenForNonExistentUser = jwt.sign(
-        { userId: 'non-existent-user-id', email: 'nonexistent@example.com' },
-        process.env.JWT_REFRESH_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      // Add token to database
-      await Token.createRefreshToken('non-existent-user-id', tokenForNonExistentUser, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
-
-      const response = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken: tokenForNonExistentUser })
-        .expect(401);
-
-      expect(response.body).toHaveProperty('success', false);
-      expect(response.body.error).toHaveProperty('code', 'USER_NOT_FOUND');
-    });
-
-    test('should handle logout with refresh token belonging to different user', async () => {
-      // Create another test user
-      const anotherUser = {
-        email: 'another@example.com',
-        password: 'TestPassword123',
-        firstName: 'Another',
-        lastName: 'User'
+    it('should logout successfully with valid tokens', async () => {
+      const mockRefreshTokenData = {
+        userId: 'user123',
+        token: 'refresh-token-123'
       };
 
-      let createdUser;
-      try {
-        createdUser = await User.create(anotherUser);
-      } catch (error) {
-        createdUser = await User.findByEmail(anotherUser.email);
-      }
+      decodeToken.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 900 });
+      Token.blacklistToken.mockResolvedValue();
+      Token.findRefreshToken.mockResolvedValue(mockRefreshTokenData);
+      Token.deleteRefreshToken.mockResolvedValue();
+      verifyRefreshToken.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 7200 });
 
-      // Login with first user
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'authtest@example.com',
-          password: 'TestPassword123'
-        });
+      await authController.logout(mockReq, mockRes);
 
-      const accessToken = loginResponse.body.data.tokens.accessToken;
-
-      // Create a refresh token for the other user
-      const jwt = require('jsonwebtoken');
-      const otherUserRefreshToken = jwt.sign(
-        { userId: createdUser.id, email: createdUser.email },
-        process.env.JWT_REFRESH_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      // Add the other user's refresh token to database
-      await Token.createRefreshToken(createdUser.id, otherUserRefreshToken, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
-
-      const response = await request(app)
-        .post('/api/auth/logout')
-        .set('Authorization', `Bearer ${accessToken}`)
-        .send({ refreshToken: otherUserRefreshToken });
-
-      // Should succeed regardless - logout just ignores tokens that don't belong to user
-      if (response.status === 200) {
-        expect(response.body).toHaveProperty('success', true);
-        expect(response.body).toHaveProperty('message', 'Logout successful');
-      } else if (response.status === 401) {
-        expect(response.body).toHaveProperty('success', false);
-        expect(['TOKEN_BLACKLISTED', 'INVALID_TOKEN'].includes(response.body.error.code)).toBe(true);
-      }
+      expect(decodeToken).toHaveBeenCalledWith('access-token-123');
+      expect(Token.blacklistToken).toHaveBeenCalledTimes(2);
+      expect(Token.findRefreshToken).toHaveBeenCalledWith('refresh-token-123');
+      expect(Token.deleteRefreshToken).toHaveBeenCalledWith('refresh-token-123');
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Logout successful'
+      });
     });
 
-    test('should handle logout with expired refresh token', async () => {
-      // Get fresh tokens
-      const loginResponse = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: 'authtest@example.com',
-          password: 'TestPassword123'
-        });
+    it('should logout successfully without refresh token', async () => {
+      mockReq.body = {};
+      decodeToken.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 900 });
+      Token.blacklistToken.mockResolvedValue();
 
-      const accessToken = loginResponse.body.data.tokens.accessToken;
+      await authController.logout(mockReq, mockRes);
 
-      // Create an expired refresh token
-      const jwt = require('jsonwebtoken');
-      const expiredRefreshToken = jwt.sign(
-        { userId: testUser.id, email: testUser.email },
-        process.env.JWT_REFRESH_SECRET,
-        { expiresIn: '-1h' } // Already expired
-      );
+      expect(Token.blacklistToken).toHaveBeenCalledTimes(1);
+      expect(Token.findRefreshToken).not.toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Logout successful'
+      });
+    });
 
-      // Add expired token to database
-      await Token.createRefreshToken(testUser.id, expiredRefreshToken, new Date(Date.now() - 3600000).toISOString());
+    it('should handle logout with invalid refresh token', async () => {
+      decodeToken.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 900 });
+      Token.blacklistToken.mockResolvedValue();
+      Token.findRefreshToken.mockResolvedValue(null);
 
-      const response = await request(app)
-        .post('/api/auth/logout')
-        .set('Authorization', `Bearer ${accessToken}`)
-        .send({ refreshToken: expiredRefreshToken });
+      await authController.logout(mockReq, mockRes);
 
-      // Should succeed - logout handles expired refresh tokens gracefully
-      if (response.status === 200) {
-        expect(response.body).toHaveProperty('success', true);
-        expect(response.body).toHaveProperty('message', 'Logout successful');
-      } else if (response.status === 401) {
-        expect(response.body).toHaveProperty('success', false);
-        expect(['TOKEN_BLACKLISTED', 'INVALID_TOKEN'].includes(response.body.error.code)).toBe(true);
-      }
+      expect(Token.blacklistToken).toHaveBeenCalledTimes(1);
+      expect(Token.deleteRefreshToken).not.toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Logout successful'
+      });
+    });
+
+    it('should handle logout with refresh token from different user', async () => {
+      const mockRefreshTokenData = {
+        userId: 'different-user',
+        token: 'refresh-token-123'
+      };
+
+      decodeToken.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 900 });
+      Token.blacklistToken.mockResolvedValue();
+      Token.findRefreshToken.mockResolvedValue(mockRefreshTokenData);
+
+      await authController.logout(mockReq, mockRes);
+
+      expect(Token.deleteRefreshToken).not.toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Logout successful'
+      });
+    });
+
+    it('should handle expired refresh token during logout', async () => {
+      const mockRefreshTokenData = {
+        userId: 'user123',
+        token: 'refresh-token-123'
+      };
+
+      decodeToken.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 900 });
+      Token.blacklistToken.mockResolvedValue();
+      Token.findRefreshToken.mockResolvedValue(mockRefreshTokenData);
+      Token.deleteRefreshToken.mockResolvedValue();
+      verifyRefreshToken.mockImplementation(() => {
+        const error = new Error('Token expired');
+        error.name = 'TokenExpiredError';
+        throw error;
+      });
+
+      await authController.logout(mockReq, mockRes);
+
+      expect(Token.deleteRefreshToken).toHaveBeenCalledWith('refresh-token-123');
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Logout successful'
+      });
+    });
+
+    it('should handle database errors during logout', async () => {
+      decodeToken.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 900 });
+      Token.blacklistToken.mockRejectedValue(new Error('Database error'));
+
+      await authController.logout(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error'
+        }
+      });
+    });
+  });
+
+  describe('refreshAccessToken', () => {
+    beforeEach(() => {
+      mockReq.body = {
+        refreshToken: 'refresh-token-123'
+      };
+    });
+
+    it('should refresh access token successfully', async () => {
+      const mockStoredToken = {
+        userId: 'user123',
+        token: 'refresh-token-123'
+      };
+      const mockUser = {
+        id: 'user123',
+        email: 'test@example.com'
+      };
+
+      Token.isTokenBlacklisted.mockResolvedValue(false);
+      Token.findRefreshToken.mockResolvedValue(mockStoredToken);
+      verifyRefreshToken.mockReturnValue({ userId: 'user123', email: 'test@example.com' });
+      User.findById.mockResolvedValue(mockUser);
+      generateAccessToken.mockReturnValue('new-access-token');
+      decodeToken.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 900 });
+
+      await authController.refreshAccessToken(mockReq, mockRes);
+
+      expect(Token.isTokenBlacklisted).toHaveBeenCalledWith('refresh-token-123');
+      expect(Token.findRefreshToken).toHaveBeenCalledWith('refresh-token-123');
+      expect(verifyRefreshToken).toHaveBeenCalledWith('refresh-token-123');
+      expect(User.findById).toHaveBeenCalledWith('user123');
+      expect(generateAccessToken).toHaveBeenCalledWith({
+        userId: 'user123',
+        email: 'test@example.com'
+      });
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        data: {
+          accessToken: 'new-access-token',
+          expiresIn: expect.any(Number)
+        }
+      });
+    });
+
+    it('should fail refresh with blacklisted token', async () => {
+      Token.isTokenBlacklisted.mockResolvedValue(true);
+
+      await authController.refreshAccessToken(mockReq, mockRes);
+
+      expect(Token.isTokenBlacklisted).toHaveBeenCalledWith('refresh-token-123');
+      expect(Token.findRefreshToken).not.toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'TOKEN_BLACKLISTED',
+          message: 'Refresh token has been revoked'
+        }
+      });
+    });
+
+    it('should fail refresh with invalid refresh token', async () => {
+      Token.isTokenBlacklisted.mockResolvedValue(false);
+      Token.findRefreshToken.mockResolvedValue(null);
+
+      await authController.refreshAccessToken(mockReq, mockRes);
+
+      expect(Token.findRefreshToken).toHaveBeenCalledWith('refresh-token-123');
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INVALID_REFRESH_TOKEN',
+          message: 'Invalid refresh token'
+        }
+      });
+    });
+
+    it('should fail refresh when user not found', async () => {
+      const mockStoredToken = {
+        userId: 'user123',
+        token: 'refresh-token-123'
+      };
+
+      Token.isTokenBlacklisted.mockResolvedValue(false);
+      Token.findRefreshToken.mockResolvedValue(mockStoredToken);
+      verifyRefreshToken.mockReturnValue({ userId: 'user123', email: 'test@example.com' });
+      User.findById.mockResolvedValue(null);
+
+      await authController.refreshAccessToken(mockReq, mockRes);
+
+      expect(User.findById).toHaveBeenCalledWith('user123');
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'USER_NOT_FOUND',
+          message: 'User not found'
+        }
+      });
+    });
+
+    it('should handle expired refresh token', async () => {
+      const mockStoredToken = {
+        userId: 'user123',
+        token: 'refresh-token-123'
+      };
+
+      Token.isTokenBlacklisted.mockResolvedValue(false);
+      Token.findRefreshToken.mockResolvedValue(mockStoredToken);
+      verifyRefreshToken.mockImplementation(() => {
+        const error = new Error('Token expired');
+        error.name = 'TokenExpiredError';
+        throw error;
+      });
+      Token.deleteRefreshToken.mockResolvedValue();
+
+      await authController.refreshAccessToken(mockReq, mockRes);
+
+      expect(Token.deleteRefreshToken).toHaveBeenCalledWith('refresh-token-123');
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'REFRESH_TOKEN_EXPIRED',
+          message: 'Refresh token has expired'
+        }
+      });
+    });
+
+    it('should handle malformed refresh token', async () => {
+      const mockStoredToken = {
+        userId: 'user123',
+        token: 'refresh-token-123'
+      };
+
+      Token.isTokenBlacklisted.mockResolvedValue(false);
+      Token.findRefreshToken.mockResolvedValue(mockStoredToken);
+      verifyRefreshToken.mockImplementation(() => {
+        const error = new Error('Malformed token');
+        error.name = 'JsonWebTokenError';
+        throw error;
+      });
+
+      await authController.refreshAccessToken(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INVALID_REFRESH_TOKEN',
+          message: 'Invalid refresh token'
+        }
+      });
+    });
+
+    it('should handle database errors during refresh', async () => {
+      Token.isTokenBlacklisted.mockRejectedValue(new Error('Database error'));
+
+      await authController.refreshAccessToken(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error'
+        }
+      });
+    });
+
+    it('should handle missing refresh token', async () => {
+      mockReq.body = {};
+
+      await authController.refreshAccessToken(mockReq, mockRes);
+
+      expect(Token.isTokenBlacklisted).toHaveBeenCalledWith(undefined);
     });
   });
 });

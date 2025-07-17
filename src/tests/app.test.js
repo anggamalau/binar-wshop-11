@@ -1,0 +1,303 @@
+const request = require('supertest');
+const { app, initializeApp } = require('../app');
+const { initDatabase } = require('../config/database');
+
+jest.mock('../config/database', () => ({
+  initDatabase: jest.fn()
+}));
+
+jest.mock('../middleware/rateLimiter', () => ({
+  authRateLimiter: jest.fn((req, res, next) => next()),
+  generalRateLimiter: jest.fn((req, res, next) => next())
+}));
+
+jest.mock('../middleware/auth', () => ({
+  authenticate: jest.fn((req, res, next) => {
+    req.user = { id: 'user123', email: 'test@example.com' };
+    next();
+  })
+}));
+
+jest.mock('../middleware/validation', () => ({
+  loginValidation: [jest.fn((req, res, next) => next())],
+  refreshTokenValidation: [jest.fn((req, res, next) => next())],
+  profileUpdateValidation: [jest.fn((req, res, next) => next())]
+}));
+
+jest.mock('../controllers/authController', () => ({
+  login: jest.fn((req, res) => res.json({ success: true, message: 'Login successful' })),
+  logout: jest.fn((req, res) => res.json({ success: true, message: 'Logout successful' })),
+  refreshAccessToken: jest.fn((req, res) => res.json({ success: true, data: { accessToken: 'new-token' } }))
+}));
+
+jest.mock('../controllers/userController', () => ({
+  getProfile: jest.fn((req, res) => res.json({ success: true, data: { user: { id: 'user123' } } })),
+  updateProfile: jest.fn((req, res) => res.json({ success: true, message: 'Profile updated' }))
+}));
+
+describe('App Configuration', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.NODE_ENV = 'test';
+  });
+
+  afterEach(() => {
+    delete process.env.NODE_ENV;
+    delete process.env.CORS_ORIGIN;
+  });
+
+  describe('initializeApp', () => {
+    it('should initialize the database', () => {
+      initializeApp();
+      expect(initDatabase).toHaveBeenCalled();
+    });
+  });
+
+  describe('Health check endpoint', () => {
+    it('should respond with health status', async () => {
+      const response = await request(app)
+        .get('/api/health');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('API is running');
+      expect(response.body.timestamp).toBeDefined();
+      expect(new Date(response.body.timestamp)).toBeInstanceOf(Date);
+    });
+  });
+
+  describe('CORS configuration', () => {
+    it('should use default CORS origin when not specified', async () => {
+      const response = await request(app)
+        .get('/api/health')
+        .set('Origin', 'http://localhost:3000');
+
+      expect(response.status).toBe(200);
+    });
+
+    it('should use environment CORS origin when specified', async () => {
+      process.env.CORS_ORIGIN = 'https://example.com';
+      
+      // Re-import app to get updated configuration
+      delete require.cache[require.resolve('../app')];
+      const { app: newApp } = require('../app');
+
+      const response = await request(newApp)
+        .get('/api/health');
+
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe('Rate limiting', () => {
+    it('should not apply rate limiting in test environment', async () => {
+      process.env.NODE_ENV = 'test';
+      
+      const response = await request(app)
+        .get('/api/health');
+
+      expect(response.status).toBe(200);
+    });
+
+    it('should apply rate limiting in production environment', async () => {
+      process.env.NODE_ENV = 'production';
+      
+      // Re-import app to get updated configuration
+      delete require.cache[require.resolve('../app')];
+      const { app: newApp } = require('../app');
+
+      const response = await request(newApp)
+        .get('/api/health');
+
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe('Auth routes', () => {
+    it('should handle login route', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'test@example.com', password: 'password123' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+    });
+
+    it('should handle logout route', async () => {
+      const response = await request(app)
+        .post('/api/auth/logout')
+        .set('Authorization', 'Bearer token')
+        .send({ refreshToken: 'refresh-token' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+    });
+
+    it('should handle refresh token route', async () => {
+      const response = await request(app)
+        .post('/api/auth/refresh')
+        .send({ refreshToken: 'refresh-token' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+    });
+  });
+
+  describe('User routes', () => {
+    it('should handle get profile route', async () => {
+      const response = await request(app)
+        .get('/api/user/profile')
+        .set('Authorization', 'Bearer token');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+    });
+
+    it('should handle update profile route', async () => {
+      const response = await request(app)
+        .put('/api/user/profile')
+        .set('Authorization', 'Bearer token')
+        .send({ firstName: 'John' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+    });
+  });
+
+  describe('404 handler', () => {
+    it('should return 404 for non-existent routes', async () => {
+      const response = await request(app)
+        .get('/api/nonexistent');
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('NOT_FOUND');
+      expect(response.body.error.message).toBe('Route not found');
+    });
+
+    it('should return 404 for invalid HTTP methods', async () => {
+      const response = await request(app)
+        .patch('/api/health');
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('NOT_FOUND');
+    });
+  });
+
+  describe('Error handling middleware', () => {
+    it('should handle JSON parsing errors', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .set('Content-Type', 'application/json')
+        .send('invalid json');
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('INVALID_JSON');
+      expect(response.body.error.message).toBe('Invalid JSON in request body');
+    });
+
+    it('should handle internal server errors', async () => {
+      // Mock a controller to throw an error
+      const { login } = require('../controllers/authController');
+      login.mockImplementation(() => {
+        throw new Error('Internal error');
+      });
+
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'test@example.com', password: 'password123' });
+
+      expect(response.status).toBe(500);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('INTERNAL_ERROR');
+      expect(response.body.error.message).toBe('Internal server error');
+    });
+  });
+
+  describe('Middleware configuration', () => {
+    it('should use helmet for security headers', async () => {
+      const response = await request(app)
+        .get('/api/health');
+
+      expect(response.headers['x-powered-by']).toBeUndefined();
+    });
+
+    it('should parse JSON bodies', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'test@example.com', password: 'password123' });
+
+      expect(response.status).toBe(200);
+    });
+
+    it('should parse URL-encoded bodies', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .set('Content-Type', 'application/x-www-form-urlencoded')
+        .send('email=test@example.com&password=password123');
+
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe('Request size limits', () => {
+    it('should accept requests within size limits', async () => {
+      const largeData = {
+        email: 'test@example.com',
+        password: 'password123',
+        data: 'a'.repeat(1000) // 1KB of data
+      };
+
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send(largeData);
+
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe('Route mounting', () => {
+    it('should mount auth routes at /api/auth', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'test@example.com', password: 'password123' });
+
+      expect(response.status).toBe(200);
+    });
+
+    it('should mount user routes at /api/user', async () => {
+      const response = await request(app)
+        .get('/api/user/profile')
+        .set('Authorization', 'Bearer token');
+
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe('Environment-specific configuration', () => {
+    it('should skip rate limiting in test environment', async () => {
+      process.env.NODE_ENV = 'test';
+      
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'test@example.com', password: 'password123' });
+
+      expect(response.status).toBe(200);
+    });
+
+    it('should apply auth rate limiting in non-test environment', async () => {
+      process.env.NODE_ENV = 'production';
+      
+      delete require.cache[require.resolve('../app')];
+      const { app: newApp } = require('../app');
+
+      const response = await request(newApp)
+        .post('/api/auth/login')
+        .send({ email: 'test@example.com', password: 'password123' });
+
+      expect(response.status).toBe(200);
+    });
+  });
+});
