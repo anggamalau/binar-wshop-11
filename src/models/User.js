@@ -1,11 +1,14 @@
 const { runQuery, getOne, uuidv4 } = require('../config/database');
 const bcrypt = require('bcrypt');
 
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
+const ALLOWED_UPDATE_FIELDS = ['firstName', 'lastName', 'phoneNumber', 'dateOfBirth', 'profilePicture'];
+
 class User {
   static async create(userData) {
     const { email, password, firstName, lastName, phoneNumber, dateOfBirth, profilePicture } = userData;
     const id = uuidv4();
-    const hashedPassword = await bcrypt.hash(password, parseInt(process.env.BCRYPT_ROUNDS) || 12);
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
     
     const sql = `
       INSERT INTO users (id, email, password, firstName, lastName, phoneNumber, dateOfBirth, profilePicture)
@@ -28,18 +31,17 @@ class User {
   }
 
   static async update(id, updateData) {
-    const allowedFields = ['firstName', 'lastName', 'phoneNumber', 'dateOfBirth', 'profilePicture'];
     const fields = [];
     const values = [];
     
-    Object.keys(updateData).forEach(key => {
-      if (allowedFields.includes(key) && updateData[key] !== undefined) {
+    for (const key of Object.keys(updateData)) {
+      if (ALLOWED_UPDATE_FIELDS.includes(key) && updateData[key] !== undefined) {
         fields.push(`${key} = ?`);
         values.push(updateData[key]);
       }
-    });
+    }
     
-    if (fields.length === 0) {
+    if (!fields.length) {
       return this.findById(id);
     }
     

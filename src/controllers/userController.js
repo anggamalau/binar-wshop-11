@@ -1,34 +1,30 @@
 const User = require('../models/User');
 
+const errorResponse = (code, message) => ({
+  success: false,
+  error: { code, message }
+});
+
+const successResponse = (data, message) => ({
+  success: true,
+  ...(message && { message }),
+  ...(data && { data })
+});
+
 const getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'USER_NOT_FOUND',
-          message: 'User not found'
-        }
-      });
+      return res.status(404).json(errorResponse('USER_NOT_FOUND', 'User not found'));
     }
     
-    res.json({
-      success: true,
-      data: {
-        user: User.formatUser(user)
-      }
-    });
+    res.json(successResponse({
+      user: User.formatUser(user)
+    }));
   } catch (error) {
     console.error('Get profile error:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'INTERNAL_ERROR',
-        message: 'Internal server error'
-      }
-    });
+    res.status(500).json(errorResponse('INTERNAL_ERROR', 'Internal server error'));
   }
 };
 
@@ -40,31 +36,15 @@ const updateProfile = async (req, res) => {
     const updatedUser = await User.update(userId, updateData);
     
     if (!updatedUser) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'USER_NOT_FOUND',
-          message: 'User not found'
-        }
-      });
+      return res.status(404).json(errorResponse('USER_NOT_FOUND', 'User not found'));
     }
     
-    res.json({
-      success: true,
-      message: 'Profile updated successfully',
-      data: {
-        user: User.formatUser(updatedUser)
-      }
-    });
+    res.json(successResponse({
+      user: User.formatUser(updatedUser)
+    }, 'Profile updated successfully'));
   } catch (error) {
     console.error('Update profile error:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'INTERNAL_ERROR',
-        message: 'Internal server error'
-      }
-    });
+    res.status(500).json(errorResponse('INTERNAL_ERROR', 'Internal server error'));
   }
 };
 

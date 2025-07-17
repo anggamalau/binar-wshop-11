@@ -20,9 +20,7 @@ const verifyRefreshToken = (token) => {
   return jwt.verify(token, process.env.JWT_REFRESH_SECRET);
 };
 
-const decodeToken = (token) => {
-  return jwt.decode(token);
-};
+const decodeToken = (token) => jwt.decode(token);
 
 const getTokenExpiration = (expiresIn) => {
   const decoded = jwt.decode(jwt.sign({}, 'dummy', { expiresIn }));

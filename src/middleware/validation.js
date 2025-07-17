@@ -15,6 +15,10 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
+const NAME_REGEX = /^[a-zA-Z\s]+$/;
+const PHONE_REGEX = /^\+?[1-9]\d{1,14}$/;
+const MIN_PASSWORD_LENGTH = 8;
+
 const loginValidation = [
   body('email')
     .isEmail()
@@ -40,17 +44,17 @@ const profileUpdateValidation = [
     .optional()
     .isLength({ min: 2, max: 50 })
     .withMessage('First name must be between 2 and 50 characters')
-    .matches(/^[a-zA-Z\s]+$/)
+    .matches(NAME_REGEX)
     .withMessage('First name must contain only letters'),
   body('lastName')
     .optional()
     .isLength({ min: 2, max: 50 })
     .withMessage('Last name must be between 2 and 50 characters')
-    .matches(/^[a-zA-Z\s]+$/)
+    .matches(NAME_REGEX)
     .withMessage('Last name must contain only letters'),
   body('phoneNumber')
     .optional()
-    .matches(/^\+?[1-9]\d{1,14}$/)
+    .matches(PHONE_REGEX)
     .withMessage('Phone number must be in E.164 format'),
   body('dateOfBirth')
     .optional()
@@ -70,16 +74,11 @@ const passwordValidation = (password) => {
     return false;
   }
   
-  const minLength = 8;
-  const hasUpperCase = /[A-Z]/.test(password);
-  const hasLowerCase = /[a-z]/.test(password);
-  const hasNumber = /\d/.test(password);
-  
   return (
-    password.length >= minLength &&
-    hasUpperCase &&
-    hasLowerCase &&
-    hasNumber
+    password.length >= MIN_PASSWORD_LENGTH &&
+    /[A-Z]/.test(password) &&
+    /[a-z]/.test(password) &&
+    /\d/.test(password)
   );
 };
 

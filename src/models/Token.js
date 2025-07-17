@@ -1,4 +1,4 @@
-const { runQuery, getOne, getAll, uuidv4 } = require('../config/database');
+const { runQuery, getOne, uuidv4 } = require('../config/database');
 
 class Token {
   static async createRefreshToken(userId, token, expiresAt) {
@@ -45,11 +45,12 @@ class Token {
   }
 
   static async cleanupExpiredTokens() {
-    const sqlBlacklist = 'DELETE FROM token_blacklist WHERE expiresAt < datetime("now")';
-    const sqlRefresh = 'DELETE FROM refresh_tokens WHERE expiresAt < datetime("now")';
+    const queries = [
+      'DELETE FROM token_blacklist WHERE expiresAt < datetime("now")',
+      'DELETE FROM refresh_tokens WHERE expiresAt < datetime("now")'
+    ];
     
-    await runQuery(sqlBlacklist);
-    await runQuery(sqlRefresh);
+    await Promise.all(queries.map(query => runQuery(query)));
   }
 }
 
