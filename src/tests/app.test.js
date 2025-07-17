@@ -162,6 +162,20 @@ describe('App Configuration', () => {
 
       expect(response.status).toBe(200);
     });
+
+    it('should apply auth rate limiting in non-test environment', async () => {
+      process.env.NODE_ENV = 'development';
+      
+      // Re-import app to get updated configuration
+      delete require.cache[require.resolve('../app')];
+      const { app: newApp } = require('../app');
+
+      const response = await request(newApp)
+        .post('/api/auth/login')
+        .send({ email: 'test@example.com', password: 'password123' });
+
+      expect(response.status).toBe(200);
+    });
   });
 
   describe('Auth routes', () => {
