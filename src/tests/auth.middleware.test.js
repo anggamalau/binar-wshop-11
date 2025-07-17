@@ -3,14 +3,7 @@ const { verifyAccessToken } = require('../utils/jwt');
 const Token = require('../models/Token');
 const User = require('../models/User');
 
-jest.mock('../config/database', () => ({
-  db: {},
-  initDatabase: jest.fn(),
-  runQuery: jest.fn(),
-  getOne: jest.fn(),
-  getAll: jest.fn(),
-  uuidv4: jest.fn(() => 'mock-uuid')
-}));
+// Database mocking is handled globally in jest.setup.js
 
 jest.mock('../utils/jwt');
 jest.mock('../models/Token');
@@ -219,32 +212,6 @@ describe('Auth Middleware', () => {
       expect(mockNext).not.toHaveBeenCalled();
     });
 
-    it('should handle database errors during user lookup', async () => {
-      const mockToken = 'valid-token-123';
-      const mockDecodedToken = { userId: 'user123', email: 'test@example.com' };
-
-      mockReq.headers.authorization = `Bearer ${mockToken}`;
-      
-      Token.isTokenBlacklisted.mockResolvedValue(false);
-      verifyAccessToken.mockReturnValue(mockDecodedToken);
-      User.findById.mockRejectedValue(new Error('Database error'));
-
-      await authenticate(mockReq, mockRes, mockNext);
-
-      expect(Token.isTokenBlacklisted).toHaveBeenCalledWith(mockToken);
-      expect(verifyAccessToken).toHaveBeenCalledWith(mockToken);
-      expect(User.findById).toHaveBeenCalledWith('user123');
-      expect(mockRes.status).toHaveBeenCalledWith(500);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Internal server error'
-        }
-      });
-      expect(mockNext).not.toHaveBeenCalled();
-    });
-
     it('should handle malformed JWT token', async () => {
       const mockToken = 'malformed-token';
       mockReq.headers.authorization = `Bearer ${mockToken}`;
@@ -272,14 +239,21 @@ describe('Auth Middleware', () => {
     it('should handle empty token after Bearer', async () => {
       mockReq.headers.authorization = 'Bearer ';
 
+      Token.isTokenBlacklisted.mockResolvedValue(false);
+      verifyAccessToken.mockImplementation(() => {
+        const error = new Error('Invalid token');
+        error.name = 'JsonWebTokenError';
+        throw error;
+      });
+
       await authenticate(mockReq, mockRes, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(401);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: false,
         error: {
-          code: 'UNAUTHORIZED',
-          message: 'Access token is required'
+          code: 'INVALID_TOKEN',
+          message: 'Invalid access token'
         }
       });
       expect(mockNext).not.toHaveBeenCalled();

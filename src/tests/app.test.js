@@ -1,11 +1,6 @@
-const request = require('supertest');
-const { app, initializeApp } = require('../app');
-const { initDatabase } = require('../config/database');
+// Database mocking is handled globally in jest.setup.js
 
-jest.mock('../config/database', () => ({
-  initDatabase: jest.fn()
-}));
-
+// Mock all dependencies before importing the app
 jest.mock('../middleware/rateLimiter', () => ({
   authRateLimiter: jest.fn((req, res, next) => next()),
   generalRateLimiter: jest.fn((req, res, next) => next())
@@ -14,6 +9,7 @@ jest.mock('../middleware/rateLimiter', () => ({
 jest.mock('../middleware/auth', () => ({
   authenticate: jest.fn((req, res, next) => {
     req.user = { id: 'user123', email: 'test@example.com' };
+    req.token = 'mock-access-token';
     next();
   })
 }));
@@ -21,7 +17,32 @@ jest.mock('../middleware/auth', () => ({
 jest.mock('../middleware/validation', () => ({
   loginValidation: [jest.fn((req, res, next) => next())],
   refreshTokenValidation: [jest.fn((req, res, next) => next())],
-  profileUpdateValidation: [jest.fn((req, res, next) => next())]
+  profileUpdateValidation: [jest.fn((req, res, next) => next())],
+  validateRequest: jest.fn((req, res, next) => next())
+}));
+
+// Mock the models that controllers depend on
+jest.mock('../models/User', () => ({
+  findByEmail: jest.fn(),
+  findById: jest.fn(),
+  verifyPassword: jest.fn(),
+  formatUser: jest.fn()
+}));
+
+jest.mock('../models/Token', () => ({
+  createRefreshToken: jest.fn(),
+  findRefreshToken: jest.fn(),
+  deleteRefreshToken: jest.fn(),
+  blacklistToken: jest.fn(),
+  isTokenBlacklisted: jest.fn()
+}));
+
+jest.mock('../utils/jwt', () => ({
+  generateAccessToken: jest.fn(),
+  generateRefreshToken: jest.fn(),
+  verifyRefreshToken: jest.fn(),
+  decodeToken: jest.fn(),
+  getTokenExpiration: jest.fn()
 }));
 
 jest.mock('../controllers/authController', () => ({
@@ -35,6 +56,10 @@ jest.mock('../controllers/userController', () => ({
   updateProfile: jest.fn((req, res) => res.json({ success: true, message: 'Profile updated' }))
 }));
 
+const request = require('supertest');
+const { app, initializeApp } = require('../app');
+const { initDatabase } = require('../config/database');
+
 describe('App Configuration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -44,6 +69,15 @@ describe('App Configuration', () => {
   afterEach(() => {
     delete process.env.NODE_ENV;
     delete process.env.CORS_ORIGIN;
+  });
+
+  afterAll(() => {
+    // Clean up module cache
+    Object.keys(require.cache).forEach(key => {
+      if (key.includes('src/') && !key.includes('node_modules')) {
+        delete require.cache[key];
+      }
+    });
   });
 
   describe('initializeApp', () => {

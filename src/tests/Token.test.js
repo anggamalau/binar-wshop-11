@@ -1,7 +1,7 @@
 const Token = require('../models/Token');
 const { runQuery, getOne, getAll, uuidv4 } = require('../config/database');
 
-jest.mock('../config/database');
+// Database mocking is handled globally in jest.setup.js
 
 describe('Token Model', () => {
   beforeEach(() => {

@@ -1,14 +1,7 @@
 const userController = require('../controllers/userController');
 const User = require('../models/User');
 
-jest.mock('../config/database', () => ({
-  db: {},
-  initDatabase: jest.fn(),
-  runQuery: jest.fn(),
-  getOne: jest.fn(),
-  getAll: jest.fn(),
-  uuidv4: jest.fn(() => 'mock-uuid')
-}));
+// Database mocking is handled globally in jest.setup.js
 
 jest.mock('../models/User');
 
@@ -97,7 +90,14 @@ describe('UserController', () => {
 
       await userController.getProfile(mockReq, mockRes);
 
-      expect(User.findById).toHaveBeenCalledWith(undefined);
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error'
+        }
+      });
     });
   });
 
@@ -246,10 +246,13 @@ describe('UserController', () => {
 
       await userController.updateProfile(mockReq, mockRes);
 
-      expect(User.update).toHaveBeenCalledWith(undefined, {
-        firstName: 'Jane',
-        lastName: 'Smith',
-        phoneNumber: '+1234567890'
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error'
+        }
       });
     });
 

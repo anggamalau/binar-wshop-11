@@ -5,14 +5,7 @@ const { login, logout, refreshAccessToken } = require('../controllers/authContro
 const { authenticate } = require('../middleware/auth');
 const { loginValidation, refreshTokenValidation } = require('../middleware/validation');
 
-jest.mock('../config/database', () => ({
-  db: {},
-  initDatabase: jest.fn(),
-  runQuery: jest.fn(),
-  getOne: jest.fn(),
-  getAll: jest.fn(),
-  uuidv4: jest.fn(() => 'mock-uuid')
-}));
+// Database mocking is handled globally in jest.setup.js
 
 jest.mock('../controllers/authController');
 jest.mock('../middleware/auth');

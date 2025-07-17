@@ -24,6 +24,9 @@ const decodeToken = (token) => jwt.decode(token);
 
 const getTokenExpiration = (expiresIn) => {
   const decoded = jwt.decode(jwt.sign({}, 'dummy', { expiresIn }));
+  if (!decoded || !decoded.exp) {
+    throw new Error('Token does not contain expiration information');
+  }
   return new Date(decoded.exp * 1000);
 };
 

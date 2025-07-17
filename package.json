@@ -12,10 +12,12 @@
   },
   "jest": {
     "testEnvironment": "node",
+    "setupFilesAfterEnv": ["<rootDir>/jest.setup.js"],
     "collectCoverageFrom": [
       "**/*.js",
       "!node_modules/**",
-      "!coverage/**"
+      "!coverage/**",
+      "!jest.setup.js"
     ],
     "coverageDirectory": "coverage",
     "coverageReporters": ["text", "html"]

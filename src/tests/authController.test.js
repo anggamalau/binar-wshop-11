@@ -9,14 +9,7 @@ const {
   getTokenExpiration
 } = require('../utils/jwt');
 
-jest.mock('../config/database', () => ({
-  db: {},
-  initDatabase: jest.fn(),
-  runQuery: jest.fn(),
-  getOne: jest.fn(),
-  getAll: jest.fn(),
-  uuidv4: jest.fn(() => 'mock-uuid')
-}));
+// Database mocking is handled globally in jest.setup.js
 
 jest.mock('../models/User');
 jest.mock('../models/Token');
